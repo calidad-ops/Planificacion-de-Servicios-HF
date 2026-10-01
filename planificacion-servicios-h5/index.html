@@ -353,6 +353,10 @@ table.data tr.click:hover td{background:var(--surface-3)}
 .pick button:last-child{border-bottom:0}
 .pick .sv{margin-left:auto;font-size:12px;color:var(--ink-faint);text-align:right}
 .notice{padding:10px 14px;border-radius:6px;font-size:13.5px;background:var(--accent-soft);color:var(--accent-soft-ink)}
+.nx-f{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+.nx-f input,.nx-f select{width:100%}
+.nx-c{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:8px}
+@media (max-width:620px){.nx-f{grid-template-columns:1fr}}
 .toasts{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center}
 .toast{background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:99px;font-size:13.5px;box-shadow:var(--shadow-lg)}
 .banner{margin:0 -16px;padding:9px 20px;font-size:13.5px;background:var(--warn-soft);color:var(--warn-ink);text-align:center}
@@ -525,6 +529,14 @@ table.data tr.click:hover td{background:var(--surface-3)}
           <div class="it"><div class="main"><div class="t">Estructura funcional</div><div class="m">Gerencia, supervisores y servicios con cobertura por turno.</div></div><button class="btn sm" data-act="exp-org">CSV</button></div>
           <div class="it"><div class="main"><div class="t">Nómina de personal</div><div class="m">Estado y asignaciones de cada persona.</div></div><button class="btn sm" data-act="exp-per">CSV</button></div>
           <div class="it"><div class="main"><div class="t">Agenda de supervisión</div><div class="m">Bloques semanales por supervisor.</div></div><button class="btn sm" data-act="exp-ag">CSV</button></div>
+          <div class="it nx"><div class="main"><div class="t">Novedades</div><div class="m">Comentarios y registro de cambios del período que elijas.</div>
+            <div class="nx-f">
+              <div class="fld"><label for="nx-per">Período</label><select id="nx-per"><option value="mes">Este mes</option><option value="mesant">Mes anterior</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="todo">Todo el historial</option><option value="custom">Personalizado</option></select></div>
+              <div class="fld"><label for="nx-desde">Desde</label><input type="date" id="nx-desde"></div>
+              <div class="fld"><label for="nx-hasta">Hasta</label><input type="date" id="nx-hasta"></div>
+            </div>
+            <div class="nx-c"><label class="chk"><input type="checkbox" id="nx-cm" checked> Comentarios</label><label class="chk"><input type="checkbox" id="nx-mv" checked> Registro de cambios</label><span class="small muted" id="nx-n"></span></div>
+          </div><button class="btn sm" data-act="exp-nov">CSV</button></div>
           <p class="small muted" style="padding-top:8px">Los CSV se abren en Excel. Cada archivo lleva el código y la versión del membrete en la primera fila.</p>
         </div>
       </div>
@@ -901,7 +913,26 @@ function renderNov(){
 }
 
 /* ---------- CONFIG ---------- */
-function renderCfg(){if(UI.cfgLoaded)return;var c=S.cfg;["titulo","codigo","version","validez","area","elaboro","aprobo"].forEach(function(k){$("cf-"+k).value=c[k]||""});UI.cfgLoaded=true}
+function novRange(){var p=$("nx-per").value,t=new Date(),d=iso(t);
+  if(p==="mes")return [d.slice(0,8)+"01",d];
+  if(p==="mesant")return [iso(new Date(t.getFullYear(),t.getMonth()-1,1)),iso(new Date(t.getFullYear(),t.getMonth(),0))];
+  if(p==="7")return [addDays(d,-6),d];if(p==="30")return [addDays(d,-29),d];
+  if(p==="todo")return ["2000-01-01","2999-12-31"];
+  return [$("nx-desde").value,$("nx-hasta").value];}
+function plainName(id){if(!id)return "Sin identificar";return S.names[id]?S.names[id].replace(/ \(vos\)$/,""):String(id).replace(/^n:/,"")}
+function novRows(){var r=novRange(),a=r[0],b=r[1];var out=[];if(!a||!b||a>b)return null;
+  function inR(ts){var x=new Date(ts);if(isNaN(x))return false;var k=iso(x);return k>=a&&k<=b}
+  if($("nx-cm").checked)vals(S.coment).forEach(function(c){if(inR(c.fecha))out.push({t:c.fecha,tipo:"Comentario",u:plainName(c.autorId),ref:refLabel(c.ref),x:c.texto,st:c.resuelto?"Resuelto":"Abierto"})});
+  if($("nx-mv").checked)vals(S.movs).forEach(function(m){(m.items||[]).forEach(function(i){if(inR(i.t))out.push({t:i.t,tipo:"Cambio",u:plainName(i.u),ref:"",x:i.x,st:""})})});
+  out.sort(function(p,q){return p.t<q.t?-1:1});return out}
+function updNov(){var el=$("nx-n");if(!el)return;var p=$("nx-per").value;if(p!=="custom"){var r=novRange();if(p==="todo"){$("nx-desde").value="";$("nx-hasta").value=""}else{$("nx-desde").value=r[0];$("nx-hasta").value=r[1]}}
+  var rows=novRows();el.textContent=rows==null?"Revisá las fechas: «Desde» tiene que ser anterior a «Hasta».":(rows.length+" registro"+(rows.length===1?"":"s")+" en el período")}
+function expNov(){var rows=novRows();if(rows==null){toast("Elegí un período válido");return}if(!rows.length){toast("No hay novedades en ese período");return}
+  var r=novRange();var lbl=$("nx-per").value==="todo"?"todo el historial":(fmtD(r[0])+" al "+fmtD(r[1]));
+  var data=[["Período: "+lbl],["Fecha","Hora","Tipo","Usuario","Servicio / persona","Detalle","Estado"]];
+  rows.forEach(function(x){var d=new Date(x.t);data.push([iso(d),String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"),x.tipo,x.u,x.ref,x.x,x.st])});
+  download("PO112_novedades_"+($("nx-per").value==="todo"?"historial":r[0]+"_a_"+r[1])+".csv","Novedades",data)}
+function renderCfg(){updNov();if(UI.cfgLoaded)return;var c=S.cfg;["titulo","codigo","version","validez","area","elaboro","aprobo"].forEach(function(k){$("cf-"+k).value=c[k]||""});UI.cfgLoaded=true}
 
 /* ---------- MODALS ---------- */
 function openModal(o){
@@ -1158,7 +1189,7 @@ document.addEventListener("click",async function(e){
   else if(act==="ex-addrow"){var n=$("ex-newname").value.trim();if(!n){toast("Escribí el nombre");return}if(await saveWeek(function(d){d.filas.push({nombre:n,dias:["","","","","","",""]})},true))logMov("Extraordinarios: agregó a "+n+" en la semana del "+fmtD(UI.wk))}
   else if(act==="nov-send"){var tx=$("nov-txt").value.trim();if(!tx)return;var ok2=await W(function(){return S.db.collection("comentarios").add({ref:"gen",texto:tx,autorId:S.uid||"",fecha:nowISO(),resuelto:false})},"Comentario publicado");if(ok2)$("nov-txt").value=""}
   else if(act==="cfg-save"){var d={};["titulo","codigo","version","validez","area","elaboro","aprobo"].forEach(function(k){d[k]=$("cf-"+k).value.trim()});stamp(d);var ok3=await W(function(){return S.db.doc("config/general").set(d)},"Membrete guardado");if(ok3){logMov("Actualizó el membrete: "+d.codigo+" v"+d.version);UI.cfgLoaded=false}}
-  else if(act==="exp-dot")expDot();else if(act==="exp-org")expOrg();else if(act==="exp-per")expPer();else if(act==="exp-ag")expAg();
+  else if(act==="exp-nov")expNov();else if(act==="exp-dot")expDot();else if(act==="exp-org")expOrg();else if(act==="exp-per")expPer();else if(act==="exp-ag")expAg();
 });
 document.addEventListener("keydown",function(e){if(e.key==="Escape"&&UI.modals.length){UI.modals[UI.modals.length-1].close()}});
 document.addEventListener("change",async function(e){
@@ -1168,6 +1199,8 @@ document.addEventListener("change",async function(e){
   if(t.id==="ex-nota"){var v3=t.value;await saveWeek(function(x){x.nota=v3});return}
   if(t.id==="wk-date"&&t.value){UI.wk=mondayOf(parseISO(t.value));renderEx();return}
   if(t.id==="nov-mes"||t.id==="nov-res"){renderNov();return}
+  if(t.id==="nx-desde"||t.id==="nx-hasta"){$("nx-per").value="custom";updNov();return}
+  if(t.id==="nx-per"||t.id==="nx-cm"||t.id==="nx-mv"){updNov();return}
 });
 ["svc-q","per-q"].forEach(function(id){$(id).addEventListener("input",function(){scheduleRender()})});
 ["svc-sup","svc-gap","svc-inact","per-est","per-rol","per-sin","org-ppl","ag-dom"].forEach(function(id){$(id).addEventListener("change",function(){if(id==="org-ppl")try{localStorage.setItem("h5svc-orgppl",$(id).checked?"1":"")}catch(e){}scheduleRender()})});
